@@ -222,7 +222,7 @@ function rememberPlayerName(name: string) {
   }
 }
 
-type SoundEffect = "DICE" | "THEME" | "TICK" | "CHIPS" | "CARD" | "DEAL" | "WIN" | "CONFIRM";
+type SoundEffect = "DICE" | "THEME" | "TICK" | "CHIPS" | "CARD" | "DEAL" | "WIN" | "CONFIRM" | "RECEIVE" | "SEND";
 let soundContext: AudioContext | null = null;
 
 function soundEnabled() {
@@ -251,6 +251,8 @@ function playSound(effect: SoundEffect) {
       TICK: [[620, 0, 0.022]], CHIPS: [[360, 0, 0.03], [520, 0.045, 0.025]],
       CARD: [[250, 0, 0.025]], DEAL: [[440, 0, 0.03], [590, 0.06, 0.026]],
       WIN: [[620, 0, 0.035], [780, 0.075, 0.03]], CONFIRM: [[540, 0, 0.026]],
+      RECEIVE: [[880, 0, 0.03], [1108, 0.07, 0.028], [1318, 0.14, 0.026], [1760, 0.21, 0.022]],
+      SEND: [[660, 0, 0.03], [495, 0.09, 0.028]],
     };
     notes[effect].forEach(([frequency, delay, volume]) => {
       const oscillator = soundContext!.createOscillator();
@@ -270,6 +272,52 @@ function playDiceFeedback() {
   navigator.vibrate?.(12);
   primeSound();
   playSound("DICE");
+}
+
+const RECEIVE_EFFECT_COINS = ["🪙", "💰", "✨", "🪙", "💸", "🪙", "✨", "💰"];
+const SEND_EFFECT_COINS = ["💸", "🪙", "✨", "💸", "🪙", "💸", "✨", "🪙"];
+
+type TransferFxVariant = "RECEIVE" | "SEND";
+
+type TransferFx = { key: string; variant: TransferFxVariant; amount: number | null; peerName: string };
+
+function TransferEffect({ fx, onDone }: { fx: TransferFx; onDone: () => void }) {
+  const { t } = useI18n();
+  const isReceive = fx.variant === "RECEIVE";
+  useEffect(() => {
+    const timer = setTimeout(onDone, 2600);
+    return () => clearTimeout(timer);
+  }, [onDone]);
+  const coins = isReceive ? RECEIVE_EFFECT_COINS : SEND_EFFECT_COINS;
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center" aria-live="polite">
+      <div className={`absolute inset-0 receive-flash ${isReceive ? "bg-amber-400/20" : "bg-sky-400/20"}`} />
+      {coins.map((coin, index) => (
+        <span
+          key={index}
+          className={`absolute text-3xl ${isReceive ? "receive-coin" : "send-coin"}`}
+          style={{
+            left: `${12 + index * 10}%`,
+            animationDelay: `${index * 0.09}s`,
+          }}
+        >
+          {coin}
+        </span>
+      ))}
+      <div className={`receive-toast relative rounded-3xl border px-6 py-4 text-center shadow-2xl backdrop-blur-md ${
+        isReceive
+          ? "border-amber-300/40 bg-slate-900/90 shadow-amber-500/20"
+          : "border-sky-300/40 bg-slate-900/90 shadow-sky-500/20"
+      }`}>
+        <div className={`text-2xl font-black ${isReceive ? "text-amber-300" : "text-sky-300"}`}>
+          {fx.amount != null ? `${isReceive ? "+" : "−"}${money(fx.amount)}` : t(isReceive ? "收到转账" : "转账成功")}
+        </div>
+        <div className="mt-1 text-xs font-bold text-slate-300">
+          {isReceive ? t("来自 {name}", { name: fx.peerName }) : t("转给 {name}", { name: fx.peerName })}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function roomTime(value: Date) {
@@ -1092,6 +1140,8 @@ function RoomView({
   const [betModeTarget, setBetModeTarget] = useState<"BLIND" | "NORMAL" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [receiveFx, setReceiveFx] = useState<TransferFx | null>(null);
+  const seenEventIdsRef = useRef<Set<string> | null>(null);
   const roomActionsRef = useRef<HTMLDivElement>(null);
   const room = state.room!;
   const isOwner = room.ownerId === uid;
@@ -1120,6 +1170,40 @@ function RoomView({
     () => new Map(state.players.map((player) => [player.id, player])),
     [state.players],
   );
+  useEffect(() => {
+    const events = state.events;
+    if (seenEventIdsRef.current === null) {
+      // First snapshot: mark everything as seen so historical transfers don't replay the effect.
+      seenEventIdsRef.current = new Set(events.map((event) => event.id));
+      return;
+    }
+    const seen = seenEventIdsRef.current;
+    for (const event of events) {
+      if (seen.has(event.id)) continue;
+      seen.add(event.id);
+      if (event.type === "TRANSFER" && event.toId === currentPlayer.id) {
+        primeSound();
+        playSound("RECEIVE");
+        navigator.vibrate?.([40, 40, 40]);
+        setReceiveFx({
+          key: event.id,
+          variant: "RECEIVE",
+          amount: event.amount ?? null,
+          peerName: playerMap.get(event.fromId ?? "")?.displayName ?? t("未知玩家"),
+        });
+      } else if (event.type === "TRANSFER" && event.fromId === currentPlayer.id) {
+        primeSound();
+        playSound("SEND");
+        navigator.vibrate?.(30);
+        setReceiveFx({
+          key: event.id,
+          variant: "SEND",
+          amount: event.amount ?? null,
+          peerName: playerMap.get(event.toId ?? "")?.displayName ?? t("未知玩家"),
+        });
+      }
+    }
+  }, [state.events, currentPlayer.id, playerMap, t]);
   useEffect(() => {
     if (modal !== "ROOM_ACTIONS") return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -1159,6 +1243,13 @@ function RoomView({
   };
   return (
     <div className="room-shell max-w-lg mx-auto bg-[#0f172a] text-slate-100">
+      {receiveFx && (
+        <TransferEffect
+          key={receiveFx.key}
+          fx={receiveFx}
+          onDone={() => setReceiveFx(null)}
+        />
+      )}
       <header className="sticky top-0 z-20 p-4 bg-slate-900/80 backdrop-blur-md border-b border-white/5 flex justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-2">
           <BrandLogo variant="header" theme={theme} onToggleTheme={onToggleTheme} showHint={showThemeHint} onDismissHint={onDismissThemeHint} />
@@ -1437,7 +1528,8 @@ function RoomView({
               await transfer(db, roomId, uid, to, amount);
               setTransferTarget(null);
               setModal(null);
-            }, "CHIPS")
+              // No sound here; the SEND effect fires when the synced event arrives.
+            }, "CONFIRM")
           }
         />
       )}

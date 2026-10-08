@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Receive-transfer celebration effect */
+@keyframes receive-coin-fall {
+  0% { top: -12%; opacity: 0; transform: scale(0.6) rotate(0deg); }
+  12% { opacity: 1; }
+  100% { top: 105%; opacity: 0.9; transform: scale(1.15) rotate(320deg); }
+}
+@keyframes send-coin-rise {
+  0% { bottom: -12%; opacity: 0; transform: scale(0.6) rotate(0deg); }
+  12% { opacity: 1; }
+  100% { bottom: 105%; opacity: 0.9; transform: scale(1.1) rotate(-280deg); }
+}
+@keyframes receive-flash-pulse {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes receive-toast-pop {
+  0% { opacity: 0; transform: scale(0.6) translateY(14px); }
+  16% { opacity: 1; transform: scale(1.06) translateY(0); }
+  26% { transform: scale(1); }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: scale(0.94) translateY(-8px); }
+}
+.receive-coin { animation: receive-coin-fall 1.7s ease-in forwards; top: -12%; }
+.send-coin { animation: send-coin-rise 1.5s ease-out forwards; bottom: -12%; }
+.receive-flash { animation: receive-flash-pulse 1.1s ease-out forwards; }
+.receive-toast { animation: receive-toast-pop 2.6s ease forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .receive-coin, .send-coin, .receive-flash { animation: none; opacity: 0; }
+  .receive-toast { animation-duration: 1.6s; }
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-tap-highlight-color: transparent;
